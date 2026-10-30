@@ -37,41 +37,56 @@ Every step is skipped when its output already exists, so a job that crashes or t
 
 ## Requirements
 
-- Linux, bash, conda (or mamba)
-- [AGAT](https://github.com/NBISweden/AGAT) and [DIAMOND](https://github.com/bbuchfink/diamond) (`envs/annot.yml`)
-- [eggNOG-mapper](https://github.com/eggnogdb/eggnog-mapper) v2 (`envs/emapper.yml`)
-- [InterProScan 5](https://interproscan-docs.readthedocs.io/) with Java 11 or newer
-- About 55 GB of disk for the databases
+- Linux (InterProScan does not run on macOS), bash, conda or mamba
+- About 20 GB of disk for InterProScan and 55 GB for the databases
 - SLURM is optional: the script also runs with plain `bash`
+
+Everything runs from **one conda environment**, `funannot`:
+
+| Tool | Source |
+|---|---|
+| [AGAT](https://github.com/NBISweden/AGAT) 1.7 | bioconda |
+| [DIAMOND](https://github.com/bbuchfink/diamond) 2.0.x | bioconda (eggNOG-mapper requires < 2.1) |
+| [eggNOG-mapper](https://github.com/eggnogdb/eggnog-mapper) 2.1.15 | bioconda |
+| Java 17, Python 3.11, Perl | conda-forge |
+| [InterProScan](https://interproscan-docs.readthedocs.io/) 5.75 | official EBI release, installed into the environment by `scripts/install_interproscan.sh` |
+
+InterProScan is not taken from bioconda because that package (5.59) is several years behind the current release and ships without the member-database data.
 
 ## Installation
 
 ```bash
-git clone https://github.com/<your-username>/functional-annotation.git
+git clone https://github.com/rsbiello/functional-annotation.git
 cd functional-annotation
 
-conda env create -f envs/annot.yml
-conda env create -f envs/emapper.yml
+# 1. Environment
+conda env create -f envs/funannot.yml
+
+# 2. Config (paths, threads, options)
+cp config/config.example.sh config/my_species.sh
+nano config/my_species.sh
+
+# 3. InterProScan into the environment (login node, needs internet)
+bash scripts/install_interproscan.sh config/my_species.sh
+
+# 4. Databases (login node, needs internet)
+bash scripts/download_databases.sh config/my_species.sh
 ```
 
-AGAT, DIAMOND and eggNOG-mapper go in separate environments because their Perl, Python and DIAMOND dependencies can clash.
-
-**InterProScan** is best taken from your cluster's module system or installed from the [official release](https://interproscan-docs.readthedocs.io/en/latest/HowToDownload.html). The bioconda package often lags behind the data releases. Example with environment modules:
+After step 3, InterProScan works with no modules:
 
 ```bash
-module load openjdk/17.0.8
-module load interproscan/5.75-106.0
+conda activate funannot
 interproscan.sh -version
 ```
 
+The installer downloads the release from EBI, checks its MD5, indexes the member databases with `setup.py`, writes an `interproscan.sh` wrapper into the environment's `bin/`, and runs a short test.
+
+If your cluster already provides InterProScan as a module, you can skip step 3 and set, for example, `IPR_SETUP="module load openjdk/17.0.8 interproscan/5.75-106.0"` in the config.
+
 ## Configuration
 
-All settings live in a config file, so the pipeline script itself never needs editing:
-
-```bash
-cp config/config.example.sh config/my_species.sh
-nano config/my_species.sh
-```
+All settings live in a config file, so the pipeline script itself never needs editing.
 
 The main settings are:
 
@@ -81,7 +96,10 @@ The main settings are:
 | `GENOME`, `GFF` | Assembly and structural annotation (all isoforms) |
 | `OUTDIR` | Output folder |
 | `DB_DIR`, `EGGNOG_DB` | Database folders |
-| `CONDA_SETUP`, `IPR_SETUP` | Commands that make conda and InterProScan available (for example `module load ...`) |
+| `CONDA_SETUP` | Command that makes conda available (for example `module load conda`) |
+| `CONDA_ENV` | Name of the environment (`funannot`) |
+| `IPR_VERSION`, `IPR_INSTALL_DIR` | InterProScan release and where to unpack it |
+| `IPR_SETUP` | Optional: load InterProScan from a module instead of the conda install |
 | `IPR_OFFLINE` | `yes` if compute nodes have no internet. This disables the InterPro lookup service and makes InterProScan several times slower |
 | `IPR_APPL` | Empty to run all member databases, or a comma-separated subset |
 | `EMAPPER_TAX_SCOPE` | `auto`, or a clade such as `Vertebrata`, `Aves`, `Mammalia` |
@@ -91,13 +109,7 @@ The main settings are:
 
 ## Databases
 
-Download once, on a machine with internet access (often the login node):
-
-```bash
-bash scripts/download_databases.sh config/my_species.sh
-```
-
-This fetches and indexes UniProtKB/Swiss-Prot, plus the eggNOG 5.0.2 data (`eggnog.db`, `eggnog.taxa.db`, `eggnog_proteins.dmnd`). The eggNOG files come directly from `eggnog5.embl.de`, because `download_eggnog_data.py` in some eggNOG-mapper releases still points to a retired host and fails with `unable to resolve host address 'eggnogdb.embl.de'`.
+`scripts/download_databases.sh` (installation step 4) fetches and indexes UniProtKB/Swiss-Prot, plus the eggNOG 5.0.2 data (`eggnog.db`, `eggnog.taxa.db`, `eggnog_proteins.dmnd`). The eggNOG files come directly from `eggnog5.embl.de`, because `download_eggnog_data.py` in some eggNOG-mapper releases still points to a retired host and fails with `unable to resolve host address 'eggnogdb.embl.de'`.
 
 ## Running
 
@@ -203,13 +215,14 @@ Only `Name` is changed; `product` and the other attributes are untouched. AGAT a
 | Message | Cause and fix |
 |---|---|
 | `Unknown option: g` (AGAT) | Recent AGAT versions bundle single-dash options, so `-gff` is read as `-g -f -f`. The pipeline uses long options (`--gff`) |
-| `module ... cannot be loaded due to missing prereq: openjdk` | Load Java first: `IPR_SETUP="module load openjdk/17.0.8 interproscan/..."` |
+| `module ... cannot be loaded due to missing prereq: openjdk` | Only with the module route: load Java first, `IPR_SETUP="module load openjdk/17.0.8 interproscan/..."`. The conda install avoids this |
+| DIAMOND refuses the Swiss-Prot index (`newer version`) | The index was built with another DIAMOND release. The pipeline rebuilds it automatically |
 | `unable to resolve host address 'eggnogdb.embl.de'` | Use `scripts/download_databases.sh`, which downloads from `eggnog5.embl.de` |
 | `DIAMOND database ... eggnog_proteins.dmnd not present` | The eggNOG download failed; rerun the download script |
 | `mkdir: cannot create directory '/path'` | The config still contains placeholder paths. Check with `grep '/path/to' config/my_species.sh` |
 | `bc: command not found` / percentages `0,0` | Fixed: the summary uses `awk` and `LC_NUMERIC=C` |
 | InterProScan fails on `*` characters | Stop codons are removed during protein extraction |
-| Home quota exceeded while creating conda envs | Set `conda config --add envs_dirs` and `pkgs_dirs` to project space |
+| Home quota exceeded while creating the conda env | Set `conda config --add envs_dirs` and `pkgs_dirs` to project space |
 
 ## Citation
 

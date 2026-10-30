@@ -17,17 +17,17 @@ DB_DIR="/path/to/databases/swissprot"      # uniprot_sprot.fasta + .dmnd
 EGGNOG_DB="/path/to/databases/eggnog"      # eggnog.db, eggnog.taxa.db, eggnog_proteins.dmnd
 
 # ----------------------------- Software --------------------------------------
-# Commands run before the conda environments are activated (leave empty if
-# conda is already on your PATH)
+# Command run before conda is used (leave empty if conda is already on PATH)
 CONDA_SETUP="module load conda"            # e.g. "" or "module load miniconda3"
-CONDA_ANNOT="annot"                        # env with diamond + agat (envs/annot.yml)
-CONDA_EMAPPER="emapper"                    # env with eggnog-mapper (envs/emapper.yml)
+CONDA_ENV="funannot"                       # envs/funannot.yml: AGAT, DIAMOND, eggNOG-mapper, Java
 
-# Commands that make interproscan.sh available (module system, PATH, ...)
-IPR_SETUP="module load openjdk interproscan"
-# e.g. IPR_SETUP="module load openjdk/17.0.8 interproscan/5.75-106.0"
-# e.g. IPR_SETUP="export PATH=/opt/interproscan-5.75-106.0:\$PATH"
+# InterProScan, installed into the same env by scripts/install_interproscan.sh
+IPR_VERSION="5.75-106.0"
+IPR_INSTALL_DIR="/path/to/software"        # ~20 GB; unpacked as interproscan-<version>/
 IPR_CMD="interproscan.sh"
+# Optional: use a cluster module instead of the conda install, e.g.
+#   IPR_SETUP="module load openjdk/17.0.8 interproscan/5.75-106.0"
+IPR_SETUP=""
 
 # ----------------------------- Resources -------------------------------------
 THREADS=${SLURM_CPUS_PER_TASK:-16}

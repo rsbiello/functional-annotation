@@ -31,7 +31,7 @@ if [[ ! -s "$DB_DIR/uniprot_sprot.dmnd" ]]; then
     gunzip -f "$DB_DIR/uniprot_sprot.fasta.gz"
     wget -q -O "$DB_DIR/reldate.txt" \
         https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/reldate.txt || true
-    conda activate "$CONDA_ANNOT"
+    conda activate "$CONDA_ENV"
     diamond makedb --in "$DB_DIR/uniprot_sprot.fasta" -d "$DB_DIR/uniprot_sprot"
     conda deactivate
 else

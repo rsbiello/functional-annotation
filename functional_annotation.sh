@@ -67,11 +67,12 @@ VERSIONS="$OUTDIR/06_final/${SPECIES}.software_versions.txt"
 
 [[ -n "${CONDA_SETUP:-}" ]] && eval "$CONDA_SETUP"
 eval "$(conda shell.bash hook)"
+# One environment holds AGAT, DIAMOND, eggNOG-mapper, Java and InterProScan
+conda activate "$CONDA_ENV"
 
 # =============================================================================
 # 1. Longest isoform + protein FASTA
 # =============================================================================
-conda activate "$CONDA_ANNOT"
 
 if [[ ! -s "$LONGEST_GFF" ]]; then
     log "Step 1a: keeping the longest isoform per gene"
@@ -95,6 +96,11 @@ log "Proteins (one per gene): $NPROT"
 # =============================================================================
 if [[ ! -s "$BLAST_OUT" ]]; then
     log "Step 2: DIAMOND blastp vs Swiss-Prot"
+    # Rebuild the index if it was made with an incompatible DIAMOND version
+    if ! diamond dbinfo -d "$SPROT_DMND" >/dev/null 2>&1; then
+        log "  re-indexing Swiss-Prot for this DIAMOND version"
+        diamond makedb --in "$SPROT_FA" -d "${SPROT_DMND%.dmnd}" -p "$THREADS"
+    fi
     # Standard 12-column outfmt 6, as required by AGAT
     diamond blastp \
         -q "$PROT" -d "$SPROT_DMND" -o "$BLAST_OUT" \
@@ -103,7 +109,6 @@ if [[ ! -s "$BLAST_OUT" ]]; then
         --max-target-seqs 1 $DIAMOND_MODE \
         -p "$THREADS" --tmpdir "$OUTDIR/tmp"
 fi
-conda deactivate
 
 # =============================================================================
 # 3. InterProScan
@@ -130,8 +135,6 @@ fi
 # =============================================================================
 # 4. eggNOG-mapper
 # =============================================================================
-conda activate "$CONDA_EMAPPER"
-
 if [[ ! -s "$EMAP_ANNOT" ]]; then
     log "Step 4: eggNOG-mapper"
     emapper.py \
@@ -143,13 +146,10 @@ if [[ ! -s "$EMAP_ANNOT" ]]; then
         --temp_dir "$OUTDIR/tmp" \
         --cpu "$THREADS" --override
 fi
-conda deactivate
 
 # =============================================================================
 # 5. Merge Swiss-Prot names + InterProScan into the GFF3 (AGAT)
 # =============================================================================
-conda activate "$CONDA_ANNOT"
-
 if [[ ! -d "$MERGED_DIR" ]]; then
     log "Step 5: merging annotations into the GFF3"
     agat_sp_manage_functional_annotation.pl \
@@ -158,7 +158,6 @@ if [[ ! -d "$MERGED_DIR" ]]; then
         --interpro "${IPR_PREFIX}.tsv" \
         --output "$MERGED_DIR"
 fi
-conda deactivate
 
 AGAT_GFF=$(find "$MERGED_DIR" -maxdepth 1 -name '*.gff*' | head -1)
 [[ -s "$AGAT_GFF" ]] || die "no GFF3 found in $MERGED_DIR"
@@ -240,13 +239,9 @@ grep -P '\tmRNA\t' "$FINAL_GFF" | grep -o 'os=[^;]*' | sed 's/os=//' \
 # Software versions, for the methods section
 {
     echo "Pipeline run: $(date '+%F %T')"
-    conda activate "$CONDA_ANNOT"
     echo "DIAMOND:       $(diamond version 2>/dev/null | head -1)"
     echo "AGAT:          $(agat_sp_keep_longest_isoform.pl --help 2>/dev/null | grep -o 'Version: v[0-9.]*' | head -1)"
-    conda deactivate
-    conda activate "$CONDA_EMAPPER"
-    echo "eggNOG-mapper: $(emapper.py --version 2>/dev/null | head -1)"
-    conda deactivate
+    echo "eggNOG-mapper: $(emapper.py --version --data_dir "$EGGNOG_DB" 2>/dev/null | grep -o 'emapper-[0-9.]*' | head -1)"
     ( [[ -n "${IPR_SETUP:-}" ]] && eval "$IPR_SETUP"
       echo "InterProScan:  $("$IPR_CMD" -version 2>/dev/null | grep -o 'InterProScan version [0-9.-]*' | head -1)" )
     [[ -s "$DB_DIR/reldate.txt" ]] && echo "Swiss-Prot:    $(head -1 "$DB_DIR/reldate.txt")"

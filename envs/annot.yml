@@ -1,7 +1,0 @@
-name: annot
-channels:
-  - conda-forge
-  - bioconda
-dependencies:
-  - diamond>=2.1
-  - agat>=1.4

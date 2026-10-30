@@ -1,0 +1,19 @@
+# Single environment for the whole pipeline:
+#   AGAT, DIAMOND, eggNOG-mapper, plus Java 17 and Python for InterProScan.
+# InterProScan itself is installed into this environment afterwards with
+#   bash scripts/install_interproscan.sh config/my_species.sh
+# because the bioconda package is several years behind the current release.
+#
+# Note: eggNOG-mapper requires DIAMOND < 2.1, so DIAMOND resolves to 2.0.x.
+name: funannot
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - agat=1.7.0
+  - eggnog-mapper=2.1.15
+  - diamond
+  - openjdk=17
+  - perl
+  - wget
