@@ -7,6 +7,7 @@ A simple, resumable pipeline for the **functional annotation of vertebrate genom
 | UniProtKB/Swiss-Prot | DIAMOND | Gene names and product descriptions from manually reviewed proteins |
 | InterPro member databases | InterProScan | Protein domains and families (Pfam, PANTHER, Gene3D, CDD, SMART, ...) and GO terms |
 | eggNOG orthology | eggNOG-mapper | Orthology-based names, GO terms, KEGG KO/pathways, EC numbers, COG categories |
+| Reference species (optional) | DIAMOND, reciprocal best hits | Orthologs and gene symbols from a closely related Ensembl species, e.g. chicken for birds |
 
 The results are merged into a single GFF3 with AGAT, and a summary table reports the percentage of genes annotated by each source, ready for a genome resource paper.
 
@@ -20,8 +21,10 @@ flowchart LR
     B --> E[4. Orthology, GO, KEGG<br/>eggNOG-mapper]
     C --> F[5. Merge into GFF3<br/>AGAT]
     D --> F
-    E --> G[6. Post-processing<br/>name case, eggNOG names,<br/>clean GO tags]
+    B -.-> R[5b. Optional: reference<br/>species orthologs<br/>reciprocal best hits]
+    E --> G[6. Post-processing<br/>name case, reference and<br/>eggNOG names, clean GO tags]
     F --> G
+    R -.-> G
     G --> H[7. Final GFF3<br/>+ summary]
 ```
 
@@ -30,7 +33,8 @@ flowchart LR
 3. **InterProScan.** All member databases available in your installation, with InterPro entries and GO terms.
 4. **eggNOG-mapper.** DIAMOND mode, against eggNOG 5.0.
 5. **Merge.** AGAT writes Swiss-Prot names and InterProScan domains/GO into the GFF3.
-6. **Post-processing.** Harmonises gene-symbol case, names unnamed genes from eggNOG, and removes non-standard GO source tags.
+5b. **Reference species (optional).** Reciprocal best hits against the Ensembl proteome of a closely related species, see [Reference species](#reference-species-optional).
+6. **Post-processing.** Harmonises gene-symbol case, adds reference-species orthologs, names unnamed genes from eggNOG, and removes non-standard GO source tags.
 7. **Summary.** Percentages per source, the species of the Swiss-Prot entries used for naming, and software versions.
 
 Every step is skipped when its output already exists, so a job that crashes or times out can simply be resubmitted.
@@ -106,6 +110,7 @@ The main settings are:
 | `NAME_CASE` | `upper` or `keep` (see [Gene-symbol case](#gene-symbol-case)) |
 | `EGGNOG_NAME_FALLBACK` | Name genes without a Swiss-Prot hit from eggNOG's `Preferred_name` |
 | `CLEAN_GO_TAGS` | Remove the `(InterPro)`/`(PANTHER)` tags from GO terms |
+| `REF_SPECIES`, `REF_DIR`, `REF_NAME_MODE` | Optional reference species (Ensembl name), where to store its proteome, and how its symbols are used |
 
 ## Databases
 
@@ -144,10 +149,12 @@ OUTDIR/
 ├── 03_interproscan/    InterProScan TSV, GFF3, XML
 ├── 04_eggnog/          *.emapper.annotations (GO, KEGG, EC, COG per gene)
 ├── 05_merged/          raw AGAT output
+├── 05_reference/       optional: REF_SPECIES/rbh.tsv (reciprocal best hits)
 └── 06_final/
     ├── SPECIES.functional.gff3                  final annotation
     ├── SPECIES.functional_annotation_summary.tsv
     ├── SPECIES.swissprot_species.txt            species of the naming hits
+    ├── SPECIES.reference_name_check.tsv         optional: Swiss-Prot vs reference names
     └── SPECIES.software_versions.txt            for the methods section
 ```
 
@@ -173,6 +180,8 @@ Genes named from eggNOG carry `name_source=eggNOG`. The eggNOG KEGG and GO annot
 | `go_interproscan`, `go_eggnog`, `go_any` | GO terms per source and their union |
 | `eggnog_hit`, `kegg_ko` | eggNOG ortholog assigned, KEGG KO assigned |
 | `any_annotation` | Union of Swiss-Prot, InterPro entry and eggNOG |
+| `ref_ortholog` | Optional: genes with a reciprocal best hit in the reference species |
+| `ref_name_same`, `ref_name_different` | Optional: Swiss-Prot name agrees / disagrees with the reference symbol |
 
 Example from a bird genome with 19,476 genes:
 
@@ -186,6 +195,42 @@ Example from a bird genome with 19,476 genes:
 | GO (either source) | 15,438 | 79.3 |
 | Any annotation | 18,263 | 93.8 |
 
+## Reference species (optional)
+
+Swiss-Prot names mostly come from human, mouse and rat. To check them against a closer, well-annotated species, set a reference species from Ensembl in the config:
+
+```bash
+REF_SPECIES="gallus_gallus"        # chicken, for birds
+REF_DIR="/path/to/databases/reference"
+REF_NAME_MODE="annotate"
+```
+
+`scripts/download_databases.sh` then downloads the current Ensembl proteome for that species. Any species in [Ensembl current_fasta](https://ftp.ensembl.org/pub/current_fasta/) works, for example:
+
+| Your genome | Reference |
+|---|---|
+| Birds | `gallus_gallus`, `taeniopygia_guttata` |
+| Mammals | `homo_sapiens`, `mus_musculus` |
+| Reptiles | `anolis_carolinensis`, `chrysemys_picta_bellii` |
+| Amphibians | `xenopus_tropicalis` |
+| Fish | `danio_rerio`, `oryzias_latipes` |
+
+You can also point `REF_PROTEOME` to your own proteome in Ensembl FASTA format (headers with `gene:` and `gene_symbol:` fields).
+
+**How it works.** The pipeline keeps the longest protein-coding protein per reference gene, runs DIAMOND in both directions with the same e-value and coverage filters as the Swiss-Prot search, and keeps pairs that are each other's best hit. A reciprocal best hit is a stricter test of orthology than a one-way best hit.
+
+**What it adds.** Each mRNA with a reciprocal best hit gets `ref_species`, `ref_ortholog` (Ensembl gene ID), `ref_symbol` and `ref_product` attributes. `REF_NAME_MODE` decides how the symbols are used:
+
+| Mode | Name in the final GFF3 |
+|---|---|
+| `annotate` (default) | Swiss-Prot name kept; reference symbol added for comparison |
+| `fill` | Swiss-Prot name kept; reference symbol used for genes without one |
+| `prefer` | Reference symbol used whenever there is one; the Swiss-Prot name is kept as `sprot_name` |
+
+Genes named this way carry `name_source=reference`. `SPECIES.reference_name_check.tsv` lists, for every reciprocal best hit, the Swiss-Prot name, the reference symbol, and whether they are the `same`, `different`, `no_sprot_name` or `ref_no_symbol`. The `different` cases are the ones to look at: they are often paralogues, or genes whose names differ between nomenclatures.
+
+Many reference genes, even in chicken, have no symbol in Ensembl (only an ID), so Swiss-Prot still names a large share of genes. You can add a reference species to a finished run: set it in the config and resubmit. Only steps 5b, 6 and 7 run again.
+
 ## Notes for vertebrate genomes
 
 ### Mammalian bias in Swiss-Prot names
@@ -195,7 +240,7 @@ Swiss-Prot is dominated by human, mouse and rat entries, so for non-mammalian ve
 - gene families with lineage-specific duplications or losses, where the best hit may be a paralogue;
 - lineage-specific genes (for example avian keratins, olfactory receptors, MHC), which may have no good match.
 
-For candidate genes, check orthology properly, for example with reciprocal best hits against a closely related Ensembl proteome, or with OrthoFinder. Complex immune regions such as the MHC need targeted annotation.
+For candidate genes, check orthology properly, for example with the optional [reference species](#reference-species-optional) step or with OrthoFinder. Complex immune regions such as the MHC need targeted annotation.
 
 ### Gene-symbol case
 

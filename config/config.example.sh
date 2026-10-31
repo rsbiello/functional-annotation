@@ -49,6 +49,26 @@ DIAMOND_MODE="--sensitive"                 # --fast | --sensitive | --more-sensi
 EMAPPER_TAX_SCOPE="auto"                   # e.g. auto | Vertebrata | Aves | Mammalia
 EMAPPER_SENSMODE="more-sensitive"          # fast | sensitive | more-sensitive
 
+# ----------------------------- Reference species (optional) ------------------
+# Reciprocal best hits against a closely related, well-annotated vertebrate
+# from Ensembl. Gives a second, lineage-matched name for each gene and a
+# table of where it agrees with the Swiss-Prot name. Leave empty to skip.
+# Use the Ensembl directory name (https://ftp.ensembl.org/pub/current_fasta/):
+#   birds        gallus_gallus, taeniopygia_guttata
+#   mammals      homo_sapiens, mus_musculus
+#   reptiles     anolis_carolinensis, chrysemys_picta_bellii
+#   amphibians   xenopus_tropicalis
+#   fish         danio_rerio, oryzias_latipes
+REF_SPECIES=""                             # e.g. "gallus_gallus"
+REF_DIR="/path/to/databases/reference"     # proteome saved as <REF_SPECIES>.pep.all.fa.gz
+# REF_PROTEOME="/path/to/own.pep.all.fa.gz" # optional: your own Ensembl-format file
+# How reference symbols are used in the final GFF3:
+#   annotate = add ref_ortholog/ref_symbol/ref_product, keep the Swiss-Prot Name
+#   fill     = as annotate, and name genes that have no Swiss-Prot name
+#   prefer   = as annotate, and use the reference symbol as Name whenever there
+#              is one (the Swiss-Prot name is kept as sprot_name)
+REF_NAME_MODE="annotate"
+
 # ----------------------------- Post-processing -------------------------------
 # Gene-symbol case. Swiss-Prot best hits are often mouse/rat entries, whose
 # symbols are capitalised (Lman1); most vertebrate nomenclatures use uppercase.

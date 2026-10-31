@@ -59,6 +59,25 @@ if [[ ! -s eggnog_proteins.dmnd ]]; then
     wget -q "$BASE/eggnog_proteins.dmnd.gz" && gunzip eggnog_proteins.dmnd.gz
 fi
 
+# ----------------------------- Reference proteome (optional) -----------------
+if [[ -n "${REF_SPECIES:-}" ]]; then
+    mkdir -p "$REF_DIR"
+    REF_FILE="$REF_DIR/${REF_SPECIES}.pep.all.fa.gz"
+    if [[ ! -s "$REF_FILE" ]]; then
+        log "Downloading the Ensembl proteome of $REF_SPECIES"
+        TMPD=$(mktemp -d "$REF_DIR/dl.XXXX")
+        wget -q -r -l1 -nd -np -e robots=off -A '*.pep.all.fa.gz' -P "$TMPD" \
+            "https://ftp.ensembl.org/pub/current_fasta/${REF_SPECIES}/pep/"
+        SRC=$(ls "$TMPD"/*.pep.all.fa.gz 2>/dev/null | head -1)
+        [[ -n "$SRC" ]] || { echo "No proteome found for '$REF_SPECIES' on Ensembl. Check the name at https://ftp.ensembl.org/pub/current_fasta/" >&2; exit 1; }
+        echo "$(basename "$SRC")  downloaded $(date '+%F') from Ensembl current_fasta" > "$REF_DIR/${REF_SPECIES}.source.txt"
+        mv "$SRC" "$REF_FILE"; rm -rf "$TMPD"
+    else
+        log "Reference proteome already present, skipping"
+    fi
+    ls -lh "$REF_FILE"
+fi
+
 log "Databases ready:"
 ls -lh "$DB_DIR"/uniprot_sprot.{fasta,dmnd} \
        "$EGGNOG_DB"/{eggnog.db,eggnog.taxa.db,eggnog_proteins.dmnd}
