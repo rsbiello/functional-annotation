@@ -1,0 +1,9 @@
+executor: slurm
+jobs: 20
+latency-wait: 60
+rerun-incomplete: true
+printshellcmds: true
+# Add Jarvis-specific values if your scheduler requires them:
+# default-resources:
+#   slurm_account: YOUR_ACCOUNT
+#   slurm_partition: YOUR_PARTITION

@@ -1,0 +1,48 @@
+# One configuration per assembly/run. Relative paths use --directory, NOT this file.
+project: S_serpentarius
+species: S_serpentarius
+genome: /path/to/genome.fa
+gff: /path/to/annotation.gff3
+# Use a fresh destination distinct from previous Bash results.
+outdir: /jarvis/scratch/usr/biello/S_serpentarius/annotation/functional/snakemake
+swissprot_fasta: /path/to/databases/swissprot/uniprot_sprot.fasta
+swissprot_db: /path/to/databases/swissprot/uniprot_sprot.dmnd
+eggnog_db: /path/to/databases/eggnog
+threads: 16
+search:
+  evalue: 1.0e-5
+  query_cover: 50
+  subject_cover: 50
+  mode: sensitive
+interproscan:
+  # Absolute executable path is required with --sdm conda for an external install.
+  command: /path/to/interproscan-5.75-106.0/interproscan.sh
+  offline: true
+  applications: ""  # e.g. Pfam,PANTHER,Gene3D
+  # An installation/data update should accompany a command path/version change.
+eggnog:
+  tax_scope: auto
+  sensitivity: more-sensitive
+postprocess:
+  name_case: keep
+  eggnog_names: true
+  clean_go_tags: true
+reference: {}  # no reference stage by default
+# reference:
+#   species: gallus_gallus
+#   proteome: /path/to/gallus_gallus.pep.all.fa.gz
+#   name_mode: annotate  # annotate | fill | prefer
+memory_mb:
+  agat: 16000
+  swissprot: 16000
+  interproscan: 64000
+  eggnog: 64000
+  reference: 16000
+  postprocess: 8000
+runtime_minutes:
+  agat: 120
+  swissprot: 240
+  interproscan: 4320
+  eggnog: 1440
+  reference: 240
+  postprocess: 60

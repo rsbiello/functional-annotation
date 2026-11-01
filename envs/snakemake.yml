@@ -1,0 +1,8 @@
+name: functional-snakemake
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.12
+  - snakemake>=9,<10
+  - snakemake-executor-plugin-slurm

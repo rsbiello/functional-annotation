@@ -12,3 +12,11 @@ databases/
 # Personal configs (keep only the example)
 config/*.sh
 !config/config.example.sh
+
+# Snakemake state, local configs and generated results
+.DS_Store
+.snakemake/
+__pycache__/
+results/
+config/*.yaml
+!config/snakemake.example.yaml

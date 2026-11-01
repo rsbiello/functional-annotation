@@ -1,5 +1,9 @@
 # Functional annotation across projects and species
 
+**Snakemake is now available:** see [SNAKEMAKE.md](SNAKEMAKE.md) for the native
+rule-based workflow, YAML configuration, and local/SLURM commands. The instructions
+below describe the original Bash entry point.
+
 This pipeline annotates **eukaryotic gene models with gene/mRNA/CDS structure**.
 Create one Bash config per project/species or assembly. Config files execute shell
 code: only load configs you trust. Bacterial CDS-only annotations are not supported
