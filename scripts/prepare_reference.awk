@@ -25,7 +25,8 @@ function flush() {
         else if ($i ~ /^gene_symbol:/)        symbol = substr($i, 13)
         else if ($i ~ /^transcript_biotype:/) bt     = substr($i, 20)
     }
-    sub(/\.[0-9]+$/, "", gene)               # drop the version suffix
+    if (gene == "") { gene=$1; sub(/^>/,"",gene) }
+    else sub(/\.[0-9]+$/, "", gene)               # drop the version suffix
     if (match($0, /description:.*/)) {
         desc = substr($0, RSTART + 12)
         sub(/ *\[Source:.*$/, "", desc)

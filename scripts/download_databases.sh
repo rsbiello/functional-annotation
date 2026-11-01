@@ -15,25 +15,25 @@ set -euo pipefail
 
 CONFIG=${1:?Usage: bash scripts/download_databases.sh <config.sh>}
 # shellcheck source=/dev/null
-source "$CONFIG"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
+load_config "$CONFIG"
 
 log() { echo "[$(date '+%F %T')] $*"; }
 
-[[ -n "${CONDA_SETUP:-}" ]] && eval "$CONDA_SETUP"
-eval "$(conda shell.bash hook)"
+activate_tools
 
 # ----------------------------- Swiss-Prot ------------------------------------
 mkdir -p "$DB_DIR"
-if [[ ! -s "$DB_DIR/uniprot_sprot.dmnd" ]]; then
+if [[ ! -s "$DB_DIR/uniprot_sprot.dmnd" || ! -s "$DB_DIR/uniprot_sprot.fasta" ]]; then
     log "Downloading UniProtKB/Swiss-Prot"
     wget -q -O "$DB_DIR/uniprot_sprot.fasta.gz" \
         https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz
     gunzip -f "$DB_DIR/uniprot_sprot.fasta.gz"
     wget -q -O "$DB_DIR/reldate.txt" \
         https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/reldate.txt || true
-    conda activate "$CONDA_ENV"
+    : # environment activated above
     diamond makedb --in "$DB_DIR/uniprot_sprot.fasta" -d "$DB_DIR/uniprot_sprot"
-    conda deactivate
+:
 else
     log "Swiss-Prot already present, skipping"
 fi
@@ -60,7 +60,7 @@ if [[ ! -s eggnog_proteins.dmnd ]]; then
 fi
 
 # ----------------------------- Reference proteome (optional) -----------------
-if [[ -n "${REF_SPECIES:-}" ]]; then
+if [[ -n "${REF_SPECIES:-}" && -z "${REF_PROTEOME:-}" ]]; then
     mkdir -p "$REF_DIR"
     REF_FILE="$REF_DIR/${REF_SPECIES}.pep.all.fa.gz"
     if [[ ! -s "$REF_FILE" ]]; then

@@ -6,10 +6,12 @@
 # =============================================================================
 
 # ----------------------------- Inputs ----------------------------------------
+PROJECT="my_project"
+OUTPUT_ROOT="../results"                  # relative to this config; projects stay separate
 SPECIES="mySpecies1"                       # prefix for all output files
 GENOME="/path/to/genome.fa"                # assembly used for gene prediction
 GFF="/path/to/annotation.gff3"             # structural annotation (BRAKER, AUGUSTUS, ...)
-OUTDIR="/path/to/output"                   # created if missing
+# OUTDIR="/path/to/output"                   # created if missing
 
 # ----------------------------- Databases -------------------------------------
 # Folders are created and filled by scripts/download_databases.sh
@@ -18,7 +20,7 @@ EGGNOG_DB="/path/to/databases/eggnog"      # eggnog.db, eggnog.taxa.db, eggnog_p
 
 # ----------------------------- Software --------------------------------------
 # Command run before conda is used (leave empty if conda is already on PATH)
-CONDA_SETUP="module load conda"            # e.g. "" or "module load miniconda3"
+CONDA_SETUP=""            # e.g. "" or "module load miniconda3"
 CONDA_ENV="funannot"                       # envs/funannot.yml: AGAT, DIAMOND, eggNOG-mapper, Java
 
 # InterProScan, installed into the same env by scripts/install_interproscan.sh
@@ -75,7 +77,7 @@ REF_NAME_MODE="annotate"
 #   upper = LMAN1 (birds, reptiles, amphibians, human/non-rodent mammals)
 #   keep  = leave symbols as they come from Swiss-Prot
 #   (for mouse/rat genomes use "keep"; for zebrafish/fish see README)
-NAME_CASE="upper"
+NAME_CASE="keep"
 # Give a name from eggNOG (Preferred_name) to genes without a Swiss-Prot name
 EGGNOG_NAME_FALLBACK="yes"
 # Remove the "(InterPro)"/"(PANTHER)" source tags from GO terms, which strict

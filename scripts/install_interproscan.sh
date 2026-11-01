@@ -17,16 +17,16 @@ set -euo pipefail
 
 CONFIG=${1:?Usage: bash scripts/install_interproscan.sh <config.sh>}
 # shellcheck source=/dev/null
-source "$CONFIG"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
+load_config "$CONFIG"
 
 IPR_VERSION=${IPR_VERSION:-5.75-106.0}
 IPR_INSTALL_DIR=${IPR_INSTALL_DIR:?set IPR_INSTALL_DIR in the config}
 
 log() { echo "[$(date '+%F %T')] $*"; }
 
-[[ -n "${CONDA_SETUP:-}" ]] && eval "$CONDA_SETUP"
-eval "$(conda shell.bash hook)"
-conda activate "$CONDA_ENV"
+activate_tools
+: # environment activated above
 
 java -version 2>&1 | head -1
 

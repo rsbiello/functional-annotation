@@ -18,7 +18,7 @@ mkdir -p "$OUT"
 
 # 1. Longest protein per reference gene
 if [[ ! -s "$OUT/ref.fa" ]]; then
-    { [[ "$REF" == *.gz ]] && zcat "$REF" || cat "$REF"; } \
+    { if [[ "$REF" == *.gz ]]; then gzip -dc "$REF"; else cat "$REF"; fi; } \
         | awk -v tsv="$OUT/ref_genes.tsv" -f "$HERE/prepare_reference.awk" > "$OUT/ref.fa"
 fi
 echo "Reference genes (longest protein each): $(grep -c '^>' "$OUT/ref.fa")"

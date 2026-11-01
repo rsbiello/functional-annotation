@@ -7,7 +7,7 @@
 #SBATCH --error=func_annot_%j.err
 
 # =============================================================================
-# Functional annotation of a vertebrate genome
+# Functional annotation of a eukaryotic genome
 #
 #   1. Longest isoform per gene + protein extraction    (AGAT)
 #   2. Gene names from UniProtKB/Swiss-Prot              (DIAMOND)
@@ -23,23 +23,19 @@
 #   sbatch functional_annotation.sh config/my_species.sh     # SLURM
 #   bash   functional_annotation.sh config/my_species.sh     # any Linux machine
 #
-# Each step is skipped when its output exists, so the job can be resubmitted
-# after a crash or a timeout and continues where it stopped.
+# Completed stages are resumed only with matching run metadata and markers.
 # =============================================================================
 
 set -euo pipefail
 export LC_NUMERIC=C          # decimal point, not comma, in the summary
 
-CONFIG=${1:?Usage: functional_annotation.sh <config.sh>}
-# shellcheck source=/dev/null
-source "$CONFIG"
-
-# Directory of this script (works under SLURM, which copies the script)
-if [[ -n "${SLURM_SUBMIT_DIR:-}" && -d "$SLURM_SUBMIT_DIR/scripts" ]]; then
-    PIPE_DIR="$SLURM_SUBMIT_DIR"
-else
-    PIPE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# SLURM copies submitted scripts: use the submission wrapper for arbitrary cwd.
+PIPE_DIR=${PIPE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}
+if [[ ! -f "$PIPE_DIR/scripts/config.sh" && -n "${SLURM_SUBMIT_DIR:-}" ]]; then
+    PIPE_DIR=$SLURM_SUBMIT_DIR
 fi
+source "$PIPE_DIR/scripts/config.sh"
+load_config "${1:?Usage: functional_annotation.sh <config.sh>}"
 
 log() { echo "[$(date '+%F %T')] $*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -47,9 +43,9 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 # ----------------------------- Checks ----------------------------------------
 [[ -s "$GENOME" ]] || die "genome not found: $GENOME"
 [[ -s "$GFF"    ]] || die "GFF3 not found: $GFF"
-[[ -s "$DB_DIR/uniprot_sprot.dmnd" ]] \
+[[ -s "$DB_DIR/uniprot_sprot.dmnd" && -s "$DB_DIR/uniprot_sprot.fasta" ]] \
     || die "Swiss-Prot missing in $DB_DIR. Run: bash scripts/download_databases.sh $CONFIG"
-[[ -s "$EGGNOG_DB/eggnog.db" && -s "$EGGNOG_DB/eggnog_proteins.dmnd" ]] \
+[[ -s "$EGGNOG_DB/eggnog.taxa.db" && -s "$EGGNOG_DB/eggnog.db" && -s "$EGGNOG_DB/eggnog_proteins.dmnd" ]] \
     || die "eggNOG data missing in $EGGNOG_DB. Run: bash scripts/download_databases.sh $CONFIG"
 
 # Optional reference species for reciprocal best hits (see config)
@@ -63,6 +59,13 @@ if [[ -n "$REF_SPECIES" ]]; then
         || die "REF_NAME_MODE must be annotate, fill or prefer"
 fi
 
+mkdir -p "$OUTDIR"
+OUTDIR="$(cd "$OUTDIR" && pwd)"
+mkdir "$OUTDIR/.running" 2>/dev/null || die "Run locked: $OUTDIR/.running (remove only after confirming no job is running)"
+trap 'rmdir "$OUTDIR/.running"' EXIT
+activate_tools
+python3 "$PIPE_DIR/scripts/run_manifest.py" "$OUTDIR" "$CONFIG" "$PIPE_DIR" "$GENOME" "$GFF" "$DB_DIR" "$EGGNOG_DB" "${REF_PROTEOME:-}"
+mkdir -p "$OUTDIR/.done"
 mkdir -p "$OUTDIR"/{01_proteins,02_swissprot,03_interproscan,04_eggnog,05_merged,06_final,tmp}
 cd "$OUTDIR"
 
@@ -81,55 +84,71 @@ REF_OUT="$OUTDIR/05_reference/${REF_SPECIES:-none}"
 RBH="$REF_OUT/rbh.tsv"
 NAME_CHECK="$OUTDIR/06_final/${SPECIES}.reference_name_check.tsv"
 
-[[ -n "${CONDA_SETUP:-}" ]] && eval "$CONDA_SETUP"
-eval "$(conda shell.bash hook)"
-# One environment holds AGAT, DIAMOND, eggNOG-mapper, Java and InterProScan
-conda activate "$CONDA_ENV"
-
+stage() {
+    local name=$1; shift
+    if [[ "$DIRTY" == yes || ! -f "$OUTDIR/.done/$name" ]]; then
+        DIRTY=yes
+        rm -f "$OUTDIR/.done/$name"
+        return 0
+    fi
+    local output
+    for output in "$@"; do
+        if [[ ! -e "$output" ]]; then
+            DIRTY=yes; rm -f "$OUTDIR/.done/$name"; return 0
+        fi
+    done
+    return 1
+}
+DIRTY=no
 # =============================================================================
 # 1. Longest isoform + protein FASTA
 # =============================================================================
 
-if [[ ! -s "$LONGEST_GFF" ]]; then
+if stage proteins_gff "$LONGEST_GFF"; then
+    rm -f "$LONGEST_GFF"
     log "Step 1a: keeping the longest isoform per gene"
     agat_sp_keep_longest_isoform.pl --gff "$GFF" --output "$LONGEST_GFF"
+    touch "$OUTDIR/.done/proteins_gff"
 fi
 
-if [[ ! -s "$PROT" ]]; then
+if stage proteins "$PROT"; then
+    rm -f "$OUTDIR/01_proteins/tmp.prot.fa"
     log "Step 1b: extracting proteins"
     agat_sp_extract_sequences.pl --gff "$LONGEST_GFF" --fasta "$GENOME" --protein \
         --output "$OUTDIR/01_proteins/tmp.prot.fa"
-    # Drop stop codons (InterProScan rejects '*') and keep only the ID in headers
-    sed '/^>/! s/\*//g' "$OUTDIR/01_proteins/tmp.prot.fa" \
-        | awk '/^>/{print $1; next}{print}' > "$PROT"
+    # Remove terminal stops; mask internal stops without shortening proteins.
+    python3 "$PIPE_DIR/scripts/clean_proteins.py" \
+        "$OUTDIR/01_proteins/tmp.prot.fa" "$PROT"
     rm -f "$OUTDIR/01_proteins/tmp.prot.fa"
+    touch "$OUTDIR/.done/proteins"
 fi
-NPROT=$(grep -c '^>' "$PROT")
+NPROT=$(awk '/^>/{n++} END{print n+0}' "$PROT")
+[[ $NPROT -gt 0 ]] || die 'No proteins extracted'
 log "Proteins (one per gene): $NPROT"
 
 # =============================================================================
 # 2. Swiss-Prot names (DIAMOND)
 # =============================================================================
-if [[ ! -s "$BLAST_OUT" ]]; then
+if stage swissprot "$BLAST_OUT"; then
     log "Step 2: DIAMOND blastp vs Swiss-Prot"
-    # Rebuild the index if it was made with an incompatible DIAMOND version
-    if ! diamond dbinfo -d "$SPROT_DMND" >/dev/null 2>&1; then
-        log "  re-indexing Swiss-Prot for this DIAMOND version"
-        diamond makedb --in "$SPROT_FA" -d "${SPROT_DMND%.dmnd}" -p "$THREADS"
-    fi
+    diamond dbinfo -d "$SPROT_DMND" >/dev/null 2>&1 \
+        || die "Swiss-Prot index is incompatible. Rebuild it with this DIAMOND version before running."
     # Standard 12-column outfmt 6, as required by AGAT
     diamond blastp \
         -q "$PROT" -d "$SPROT_DMND" -o "$BLAST_OUT" \
         --outfmt 6 \
         --evalue "$EVALUE" --query-cover "$QCOV" --subject-cover "$SCOV" \
-        --max-target-seqs 1 $DIAMOND_MODE \
+        --max-target-seqs 1 "$DIAMOND_MODE" \
         -p "$THREADS" --tmpdir "$OUTDIR/tmp"
+    touch "$OUTDIR/.done/swissprot"
 fi
 
 # =============================================================================
 # 3. InterProScan
 # =============================================================================
-if [[ ! -s "${IPR_PREFIX}.tsv" ]]; then
+if stage interpro "${IPR_PREFIX}.tsv"; then
+    rm -f "${IPR_PREFIX}.tsv" "${IPR_PREFIX}.xml" "${IPR_PREFIX}.gff3"
+    rm -rf "$OUTDIR/tmp/ipr_tmp"
     log "Step 3: InterProScan"
     [[ -n "${IPR_SETUP:-}" ]] && eval "$IPR_SETUP"
 
@@ -138,7 +157,7 @@ if [[ ! -s "${IPR_PREFIX}.tsv" ]]; then
     [[ -n "${IPR_APPL:-}" ]]      && IPR_OPTS+=(-appl "$IPR_APPL")
 
     # -pa (MetaCyc/Reactome) is deliberately not used: pathways come from
-    # eggNOG/KEGG, which suit vertebrates better
+    # eggNOG/KEGG in the separate eggNOG annotation table
     "$IPR_CMD" \
         -i "$PROT" -b "$IPR_PREFIX" \
         -f TSV,GFF3,XML \
@@ -146,12 +165,13 @@ if [[ ! -s "${IPR_PREFIX}.tsv" ]]; then
         -cpu "$THREADS" ${IPR_OPTS[@]+"${IPR_OPTS[@]}"} \
         -T "$OUTDIR/tmp/ipr_tmp"
     rm -rf "$OUTDIR/tmp/ipr_tmp"
+    touch "$OUTDIR/.done/interpro"
 fi
 
 # =============================================================================
 # 4. eggNOG-mapper
 # =============================================================================
-if [[ ! -s "$EMAP_ANNOT" ]]; then
+if stage eggnog "$EMAP_ANNOT"; then
     log "Step 4: eggNOG-mapper"
     emapper.py \
         -i "$PROT" --itype proteins \
@@ -161,18 +181,22 @@ if [[ ! -s "$EMAP_ANNOT" ]]; then
         -o "$SPECIES" --output_dir "$OUTDIR/04_eggnog" \
         --temp_dir "$OUTDIR/tmp" \
         --cpu "$THREADS" --override
+    touch "$OUTDIR/.done/eggnog"
 fi
 
 # =============================================================================
 # 5. Merge Swiss-Prot names + InterProScan into the GFF3 (AGAT)
 # =============================================================================
-if [[ ! -d "$MERGED_DIR" ]]; then
+if stage merge "$MERGED_DIR/merge.complete"; then
+    rm -rf "$MERGED_DIR"
     log "Step 5: merging annotations into the GFF3"
     agat_sp_manage_functional_annotation.pl \
         --gff "$LONGEST_GFF" \
-        --blast "$BLAST_OUT" --db "$SPROT_FA" \
+        --blast "$BLAST_OUT" --db "$SPROT_FA" --blast_evalue "$EVALUE" \
         --interpro "${IPR_PREFIX}.tsv" \
         --output "$MERGED_DIR"
+    compgen -G "$MERGED_DIR/*.gff*" >/dev/null || die "AGAT did not produce a GFF"
+    touch "$MERGED_DIR/merge.complete" "$OUTDIR/.done/merge"
 fi
 
 AGAT_GFF=$(find "$MERGED_DIR" -maxdepth 1 -name '*.gff*' | head -1)
@@ -181,26 +205,27 @@ AGAT_GFF=$(find "$MERGED_DIR" -maxdepth 1 -name '*.gff*' | head -1)
 # =============================================================================
 # 5b. Optional: reciprocal best hits against a reference species
 # =============================================================================
-if [[ -n "$REF_SPECIES" && ! -s "$RBH" ]]; then
+if [[ -n "$REF_SPECIES" ]] && stage reference "$RBH"; then
+    rm -rf "$REF_OUT"
     log "Step 5b: reciprocal best hits against $REF_SPECIES"
     bash "$PIPE_DIR/scripts/reference_rbh.sh" \
         "$PROT" "$REF_PROTEOME" "$REF_OUT" "$THREADS" "$EVALUE" "$QCOV" "$SCOV"
+    touch "$OUTDIR/.done/reference"
 fi
 
 # =============================================================================
 # 6. Post-processing
 # =============================================================================
 # Rerun when the final GFF3 is missing, or when a reference species was added
-if [[ ! -s "$FINAL_GFF" || ( -n "$REF_SPECIES" && ! -s "$NAME_CHECK" ) ]]; then
+if stage final "$FINAL_GFF"; then
     log "Step 6: post-processing"
     cp "$AGAT_GFF" "$OUTDIR/tmp/step6.gff3"
 
     # 6a. Gene-symbol case (only the Name attribute is changed)
     if [[ "$NAME_CASE" == "upper" ]]; then
-        sed -E 's/(;Name=)([^;]+)/\1\U\2/' \
-            "$OUTDIR/tmp/step6.gff3" \
-            | sed -E 's/(Name=C[0-9XYZW]+)ORF([0-9])/\1orf\2/' \
-            > "$OUTDIR/tmp/step6a.gff3"
+        awk -F'\t' -v OFS='\t' '
+            !/^#/ && NF == 9 { n=split($9,a,";"); for(i=1;i<=n;i++) if(a[i] ~ /^Name=/) a[i]="Name=" toupper(substr(a[i],6)); $9=a[1]; for(i=2;i<=n;i++) $9=$9 ";" a[i] } {print}
+        ' "$OUTDIR/tmp/step6.gff3" > "$OUTDIR/tmp/step6a.gff3"
         mv "$OUTDIR/tmp/step6a.gff3" "$OUTDIR/tmp/step6.gff3"
     fi
 
@@ -244,6 +269,7 @@ if [[ ! -s "$FINAL_GFF" || ( -n "$REF_SPECIES" && ! -s "$NAME_CHECK" ) ]]; then
     fi
 
     mv "$OUTDIR/tmp/step6.gff3" "$FINAL_GFF"
+    touch "$OUTDIR/.done/final"
 fi
 
 # =============================================================================
@@ -255,15 +281,14 @@ IPR="${IPR_PREFIX}.tsv"
 
 grep '^>' "$PROT" | sed 's/^>//' | sort -u                                 > "$S/all"
 cut -f1 "$BLAST_OUT" | sort -u                                             > "$S/swissprot_hit"
-awk -F'\t' '$3=="mRNA" && $9 ~ /(^|;)Name=/' "$FINAL_GFF" \
-    | grep -o 'ID=[^;]*' | sed 's/ID=//' | sort -u                         > "$S/named_final"
+awk -F'\t' '$3=="mRNA" && $9 ~ /(^|;)Name=/ {n=split($9,a,";"); for(i=1;i<=n;i++) if(a[i] ~ /^ID=/) print substr(a[i],4)}' "$FINAL_GFF" | sort -u                         > "$S/named_final"
 cut -f1 "$IPR" | sort -u                                                   > "$S/interproscan_any"
-awk -F'\t' '$12!="" && $12!="-"' "$IPR" | cut -f1 | sort -u                > "$S/interpro_entry"
+awk -F'\t' '$12!="" && $12!="-" && $12!=""' "$IPR" | cut -f1 | sort -u                > "$S/interpro_entry"
 awk -F'\t' '$4=="Pfam"' "$IPR" | cut -f1 | sort -u                         > "$S/pfam"
 awk -F'\t' '$14!="" && $14!="-"' "$IPR" | cut -f1 | sort -u                > "$S/go_interproscan"
-grep -v '^#' "$EMAP_ANNOT" | cut -f1 | sort -u                             > "$S/eggnog_hit"
-grep -v '^#' "$EMAP_ANNOT" | awk -F'\t' '$10!="-"' | cut -f1 | sort -u     > "$S/go_eggnog"
-grep -v '^#' "$EMAP_ANNOT" | awk -F'\t' '$12!="-"' | cut -f1 | sort -u     > "$S/kegg_ko"
+awk '!/^#/ && NF' "$EMAP_ANNOT" | cut -f1 | sort -u                             > "$S/eggnog_hit"
+awk '!/^#/ && NF' "$EMAP_ANNOT" | awk -F'\t' '$10!="-" && $10!=""' | cut -f1 | sort -u     > "$S/go_eggnog"
+awk '!/^#/ && NF' "$EMAP_ANNOT" | awk -F'\t' '$12!="-" && $12!=""' | cut -f1 | sort -u     > "$S/kegg_ko"
 cat "$S/go_interproscan" "$S/go_eggnog" | sort -u                          > "$S/go_any"
 cat "$S/swissprot_hit" "$S/interpro_entry" "$S/eggnog_hit" | sort -u       > "$S/any_annotation"
 CATS="swissprot_hit named_final interproscan_any interpro_entry pfam go_interproscan eggnog_hit go_eggnog kegg_ko go_any any_annotation"
@@ -287,7 +312,7 @@ TOTAL=$(wc -l < "$S/all")
 column -t "$SUMMARY" 2>/dev/null || cat "$SUMMARY"
 
 # Species of the Swiss-Prot entries used for naming (top 15)
-grep -P '\tmRNA\t' "$FINAL_GFF" | grep -o 'os=[^;]*' | sed 's/os=//' \
+awk -F'\t' '$3=="mRNA"' "$FINAL_GFF" | grep -o 'os=[^;]*' | sed 's/os=//' \
     | sort | uniq -c | sort -rn | head -15 \
     > "$OUTDIR/06_final/${SPECIES}.swissprot_species.txt" || true
 
@@ -301,7 +326,7 @@ grep -P '\tmRNA\t' "$FINAL_GFF" | grep -o 'os=[^;]*' | sed 's/os=//' \
       echo "InterProScan:  $("$IPR_CMD" -version 2>/dev/null | grep -o 'InterProScan version [0-9.-]*' | head -1)" )
     [[ -s "$DB_DIR/reldate.txt" ]] && echo "Swiss-Prot:    $(head -1 "$DB_DIR/reldate.txt")"
     echo "eggNOG DB:     emapperdb-5.0.2"
-    [[ -n "$REF_SPECIES" && -s "$REF_DIR/${REF_SPECIES}.source.txt" ]] \
+    [[ -n "$REF_SPECIES" && -s "${REF_DIR:-}/${REF_SPECIES}.source.txt" ]] \
         && echo "Reference:     $(cat "$REF_DIR/${REF_SPECIES}.source.txt")"
 } > "$VERSIONS" 2>/dev/null || true
 

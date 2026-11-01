@@ -30,7 +30,7 @@ function esc(v) {                      # GFF3 reserved characters
     return v
 }
 
-FNR == 1 { f++ }
+FNR == 1 { if (FILENAME == ARGV[1]) f=1; else if (f < 2) f=2; else f=3 }
 
 # ---- file 1: rbh.tsv
 f == 1 {

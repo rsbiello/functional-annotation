@@ -1,3 +1,99 @@
+# Functional annotation across projects and species
+
+This pipeline annotates **eukaryotic gene models with gene/mRNA/CDS structure**.
+Create one Bash config per project/species or assembly. Config files execute shell
+code: only load configs you trust. Bacterial CDS-only annotations are not supported
+by the current naming/parent propagation workflow.
+
+## Run a project
+
+```bash
+cp config/config.example.sh config/my_species.sh
+# Edit input paths, database paths and the following settings:
+```
+
+```bash
+PROJECT="assembly_v1"
+SPECIES="arabidopsis_thaliana"
+GENOME="../data/genome.fa"
+GFF="../data/genes.gff3"
+OUTPUT_ROOT="../results"
+NAME_CASE="keep"
+EMAPPER_TAX_SCOPE="auto"
+REF_SPECIES=""                 # optional reference label
+# REF_PROTEOME="../references/proteins.fa"  # plain or gzip FASTA
+```
+
+All relative file/directory paths are resolved against the config's directory.
+Results go to `OUTPUT_ROOT/PROJECT/SPECIES/`. An explicit `OUTDIR` overrides this;
+choose a unique directory for each assembly/run. Existing configs with absolute
+paths remain usable, but old output directories need a fresh destination.
+Keep gene-symbol case unless your species' nomenclature requires uppercase.
+For a custom reference FASTA, set both `REF_SPECIES` (a label) and `REF_PROTEOME`.
+Ensembl headers support gene-level longest-isoform selection and symbol transfer.
+Generic FASTA headers use the first token as the reference ID; without Ensembl
+metadata, each record is treated independently and no symbol is invented.
+The automatic reference downloader still targets vertebrate Ensembl; supply your
+own proteome for plants, fungi, invertebrates or other reference sources.
+
+```bash
+bash functional_annotation.sh config/my_species.sh
+bash scripts/run_projects.sh local config/project_a.sh config/project_b.sh
+bash scripts/run_projects.sh slurm config/project_a.sh config/project_b.sh
+```
+
+The SLURM wrapper works from another working directory. Default allocation remains
+16 CPUs / 64 GB / 3 days. For custom allocations, submit with `sbatch --chdir=/absolute/pipeline/path
+--cpus-per-task=32 --mem=128G /absolute/pipeline/path/functional_annotation.sh
+/absolute/config/path.sh` on a single line. Keep THREADS within the allocation.
+Set `CONDA_ENV=""` to use software already available on PATH. Otherwise set the
+conda environment and any cluster module setup in the config. Python 3 is required.
+Database download and InterProScan installation remain explicit setup steps below.
+
+## Restart and provenance
+
+Completed stages have success markers; interrupted stages rerun, along with their
+downstream stages. Empty search results are valid and no longer fail the summary.
+A run manifest records config/code hashes and input/database path, size and mtime.
+Changed files/configs require a new output directory; the pipeline does not silently
+reuse previous annotations. Input metadata is a quick change detector, not a full
+content checksum. Keep databases immutable during runs and use explicit settings
+in configs rather than changing environment-dependent scientific parameters.
+A per-output directory lock prevents concurrent writers. After a killed job, remove
+`.running` only once you have verified that the old job has stopped.
+
+The final GFF contains the selected longest isoforms, Swiss-Prot/InterPro annotations
+and optional names. The eggNOG table remains a **separate output**: its GO/KEGG/EC/COG
+annotations are not all merged into the GFF. RBH is a useful candidate correspondence,
+not proof of orthology; duplications and ties need biological review.
+
+## Validation and review
+
+```bash
+python3 tests/test_pipeline.py
+```
+
+Tests use simulated external tools to exercise orchestration: interrupted InterPro
+recovery, zero-hit output, resume, config-change rejection, project separation,
+locking and empty eggNOG input. They do not validate biological accuracy or certify
+the installed AGAT/DIAMOND/InterProScan/eggNOG versions. A small real-data run on your
+Linux/cluster environment is still required before a production run.
+
+Review fixes include consistent merge/search e-value thresholds, config-relative
+paths, species-neutral naming, portable name capitalization, checks for the Swiss-Prot
+FASTA and eggNOG taxonomy database, and internal-stop masking instead of deleting
+amino-acid positions. Shared Swiss-Prot indexes are no longer rebuilt mid-run.
+
+Sources checked: [AGAT merge options](https://github.com/NBISweden/AGAT/blob/master/docs/tools/agat_sp_manage_functional_annotation.md)
+and [InterProScan input requirements](https://interproscan-docs.readthedocs.io/en/v5/InputFormat.html).
+
+---
+
+## Original installation and workflow documentation
+
+The original guide follows for setup details and background. The configuration,
+restart and species defaults above supersede conflicting examples below.
+
 # Functional annotation
 
 A simple, resumable pipeline for the **functional annotation of vertebrate genomes**. It takes a genome assembly and a structural annotation (for example from BRAKER) and adds gene names, protein domains, GO terms and KEGG pathways. It combines three complementary sources of evidence:

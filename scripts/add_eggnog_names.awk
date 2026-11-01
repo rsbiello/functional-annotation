@@ -15,11 +15,16 @@ function attr(s, key,    re, m) {
     return ""
 }
 
-FNR == 1 { f++ }
+function esc(v) {
+    gsub(/%/, "%25", v); gsub(/;/, "%3B", v); gsub(/=/, "%3D", v)
+    gsub(/&/, "%26", v); gsub(/,/, "%2C", v); return v
+}
+
+FNR == 1 { if (FILENAME == ARGV[1]) f=1; else if (f < 2) f=2; else f=3 }
 
 # ---- file 1: eggNOG annotations (col 1 = query, col 9 = Preferred_name)
 f == 1 {
-    if ($0 !~ /^#/ && $9 != "" && $9 != "-") egg[$1] = (upper == "upper" ? toupper($9) : $9)
+    if ($0 !~ /^#/ && $9 != "" && $9 != "-") egg[$1] = esc(upper == "upper" ? toupper($9) : $9)
     next
 }
 
