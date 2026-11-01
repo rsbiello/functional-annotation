@@ -35,9 +35,25 @@ load_config() {
     done
 }
 activate_tools() {
-    [[ -z "${CONDA_SETUP:-}" ]] || eval "$CONDA_SETUP"
-    if [[ -n "$CONDA_ENV" ]]; then
-        eval "$(conda shell.bash hook)"
-        conda activate "$CONDA_ENV"
+    [[ -z "${CONDA_SETUP:-}" ]] || eval "$CONDA_SETUP" || return $?
+    [[ -n "${CONDA_ENV:-}" ]] || return 0
+    # Do not deactivate/reactivate an environment the caller already selected.
+    if [[ -n "${CONDA_PREFIX:-}" && ( "${CONDA_DEFAULT_ENV:-}" == "$CONDA_ENV" || "$CONDA_PREFIX" == "$CONDA_ENV" ) ]]; then
+        return 0
     fi
+    # Conda's third-party activation/deactivation hooks may read unset variables.
+    # Relax nounset only around Conda, preserving the caller's original setting.
+    local restore_nounset=no hook status=0
+    case $- in *u*) restore_nounset=yes; set +u ;; esac
+    if hook=$(conda shell.bash hook); then
+        if eval "$hook"; then
+            conda activate "$CONDA_ENV" || status=$?
+        else
+            status=$?
+        fi
+    else
+        status=$?
+    fi
+    if [[ "$restore_nounset" == yes ]]; then set -u; fi
+    return "$status"
 }
