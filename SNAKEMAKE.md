@@ -1,34 +1,76 @@
-# Snakemake workflow
+# Run functional annotation with Snakemake on Jarvis
 
-The root `Snakefile` is a native Snakemake 9 workflow. It does not wrap the whole
-Bash pipeline in one job. Swiss-Prot, InterProScan, eggNOG and the optional
-reference search have independent rules, dependencies, resource requests and logs.
-Snakemake schedules available branches concurrently and tracks code, parameters,
-inputs and incomplete jobs. The original Bash entry point remains available.
+Use **one Conda environment: `funannot`**. It contains Snakemake, the SLURM executor,
+AGAT, DIAMOND, eggNOG-mapper, Java and Python. Activate it for both setup and runs.
+InterProScan and the databases are installed in shared folders outside Conda and
+reused for different species. The workflow uses the active environment; it does
+not create per-rule environments. Do not add `--sdm conda` to these commands.
 
-## 1. Install on Jarvis
+## 1. Install or update the environment
 
-After pushing these files from your Mac and pulling them on Jarvis:
+After pushing the repository changes from your Mac, run on Jarvis:
 
 ```bash
 cd /jarvis/scratch/usr/biello/software/functional-annotation
-conda env create -f envs/snakemake.yml
-conda activate functional-snakemake
+git pull --ff-only
+conda env create -f envs/funannot.yml
+conda activate funannot
 ```
 
-This installs the workflow engine and SLURM executor. `--sdm conda` in the commands
-below creates a separate annotation environment from `envs/funannot.yml` for the
-rules. Create environments on a node with network access. InterProScan and its
-member databases must be installed separately; put its **absolute executable path**
-in the YAML. Do not point to a wrapper that depends on an unrelated active conda
-environment. The annotation environment supplies Java 17. The earlier Bash setup
-scripts still use `.sh` configs, not this YAML.
+If `funannot` already exists, replace the creation command with:
 
-Database downloading/indexing is a separate preparation step: set existing
-Swiss-Prot FASTA/index and eggNOG database paths. Avoid modifying shared database
-files during jobs. If a DIAMOND index is incompatible, rebuild it separately.
+```bash
+conda env update -n funannot -f envs/funannot.yml
+conda activate funannot
+```
 
-## 2. Configure a project/assembly
+If you previously created `functional-snakemake`, leave it unused; it is not needed
+for this setup. No environment or downloaded database needs to be deleted.
+Create/update the environment on a suitable node with internet access. All workers
+must be able to access this same Conda environment, repository and data directories.
+
+## 2. Install shared InterProScan and databases once
+
+Skip installations you have already completed at these paths. Create the setup
+configuration from the repository directory:
+
+```bash
+cat > config/setup.sh <<'CONFIG'
+PROJECT="shared_databases"
+SPECIES="shared"
+CONDA_SETUP=""
+CONDA_ENV="funannot"
+DB_DIR="/jarvis/scratch/usr/biello/databases/swissprot"
+EGGNOG_DB="/jarvis/scratch/usr/biello/databases/eggnog"
+IPR_VERSION="5.75-106.0"
+IPR_INSTALL_DIR="/jarvis/scratch/usr/biello/software"
+REF_SPECIES=""
+CONFIG
+
+bash scripts/install_interproscan.sh config/setup.sh
+bash scripts/download_databases.sh config/setup.sh
+```
+
+These scripts use Bash configuration (`setup.sh`). The annotation workflow uses
+YAML (`config.yaml`, below). No genome/GFF is required for database setup.
+Downloads, extraction and indexing need substantial disk space and a suitable node
+with internet access. Stop and resolve any failed command before proceeding.
+The installer checks InterProScan's archive checksum and runs a small Pfam test.
+Keep eggNOG-mapper 2.1.15 paired with the downloaded 5.0.2 databases.
+
+Verify the tools and Swiss-Prot index:
+
+```bash
+snakemake --version
+interproscan.sh -version
+diamond dbinfo -d /jarvis/scratch/usr/biello/databases/swissprot/uniprot_sprot.dmnd
+ls -lh /jarvis/scratch/usr/biello/databases/eggnog/
+```
+
+The eggNOG directory must contain `eggnog.db`, `eggnog.taxa.db`, and
+`eggnog_proteins.dmnd`. Do not modify shared databases while annotation jobs run.
+
+## 3. Configure the species/assembly
 
 ```bash
 mkdir -p /jarvis/scratch/usr/biello/S_serpentarius/annotation/functional
@@ -36,98 +78,104 @@ cp config/snakemake.example.yaml /jarvis/scratch/usr/biello/S_serpentarius/annot
 nano /jarvis/scratch/usr/biello/S_serpentarius/annotation/functional/config.yaml
 ```
 
-Fill in `genome`, `gff`, `swissprot_fasta`, `swissprot_db`, `eggnog_db` and
-`interproscan.command`. The example uses a fresh `functional/snakemake` output
-subdirectory so the first run cannot confuse old Bash results with Snakemake outputs.
+If the project config already exists, edit it instead of copying over it. Set its
+real genome and GFF paths. Update the existing database/software entries to:
 
-One YAML config describes one project/species/assembly. For another species or
-assembly, copy the config, change the input paths and give it a separate `outdir`
-and working directory. If `outdir` is omitted, the default is
-`results/<project>/<species>` within the working directory. Unlike the Bash loader,
-**relative input/output paths are relative to `--directory`**, not the config file.
-Absolute paths are simplest for cluster use. There is no organism list hardcoded
-in the rules; the same gene/mRNA/CDS annotation assumptions as the Bash pipeline apply.
+```yaml
+swissprot_fasta: /jarvis/scratch/usr/biello/databases/swissprot/uniprot_sprot.fasta
+swissprot_db: /jarvis/scratch/usr/biello/databases/swissprot/uniprot_sprot.dmnd
+eggnog_db: /jarvis/scratch/usr/biello/databases/eggnog
+interproscan:
+  command: /jarvis/scratch/usr/biello/software/interproscan-5.75-106.0/interproscan.sh
+  offline: true
+  applications: ""
+```
 
-## 3. Preview the jobs
+Keep the other example settings. `offline: true` disables the online match lookup,
+allowing annotation on compute nodes without internet access.
+
+Use one YAML per assembly/run. Change `project`, `species`, the inputs and `outdir`
+for other projects. Use separate working and output directories for independent
+runs. The example writes to `functional/snakemake` to avoid reusing old Bash outputs.
+Relative data paths are resolved against `--directory`, not the YAML's location;
+absolute paths are simplest. Eukaryotic gene/mRNA/CDS annotations are assumed.
+
+## 4. Preview and run
+
+Activate the same environment and define these shortcuts in each new shell:
+
+```bash
+conda activate funannot
+REPO=/jarvis/scratch/usr/biello/software/functional-annotation
+RUN=/jarvis/scratch/usr/biello/S_serpentarius/annotation/functional
+```
+
+Preview the jobs:
 
 ```bash
 snakemake \
-  --snakefile /jarvis/scratch/usr/biello/software/functional-annotation/Snakefile \
-  --configfile /jarvis/scratch/usr/biello/S_serpentarius/annotation/functional/config.yaml \
-  --directory /jarvis/scratch/usr/biello/S_serpentarius/annotation/functional \
+  --snakefile "$REPO/Snakefile" \
+  --configfile "$RUN/config.yaml" \
+  --directory "$RUN" \
   --cores 16 --dry-run
 ```
 
-The preview validates the dependency graph and input availability. It does not
-validate database contents, executable availability, or cluster submission.
-
-## 4. Run through SLURM
-
-The supplied profile is generic: add `slurm_account` and `slurm_partition` if Jarvis
-requires them, following the commented examples in `profiles/slurm/config.yaml`.
-Memory, runtime (minutes), and threads are configurable in the project YAML.
+If Jarvis requires a SLURM account or partition, edit the commented examples in
+`profiles/slurm/config.yaml`. Memory, CPU count and runtime (minutes) are configurable
+in the project YAML. Then submit:
 
 ```bash
 snakemake \
-  --snakefile /jarvis/scratch/usr/biello/software/functional-annotation/Snakefile \
-  --configfile /jarvis/scratch/usr/biello/S_serpentarius/annotation/functional/config.yaml \
-  --directory /jarvis/scratch/usr/biello/S_serpentarius/annotation/functional \
-  --profile /jarvis/scratch/usr/biello/software/functional-annotation/profiles/slurm \
-  --sdm conda
+  --snakefile "$REPO/Snakefile" \
+  --configfile "$RUN/config.yaml" \
+  --directory "$RUN" \
+  --profile "$REPO/profiles/slurm"
 ```
 
-Run the controller in a persistent session or a suitable controller allocation,
-according to Jarvis policy. It submits one job per rule. Do not submit this command
-as sixteen compute CPUs merely to get parallel workers: the profile requests each
-rule's own CPUs/memory. The controller must remain running, and the same repository,
-working directory, environments and data paths must be accessible to all workers.
+Keep the controller running in a persistent session or controller allocation
+permitted by Jarvis policy. It submits one job per rule; searches can run concurrently.
+Workers must inherit the activated environment's PATH. The standard SLURM executor
+exports the submission environment; site-specific settings must not strip it.
 
-For a local run inside an appropriately sized allocation, omit `--profile` and add
-`--cores 16 --resources mem_mb=64000 --rerun-incomplete --sdm conda`.
-To use an already prepared software environment instead, omit `--sdm conda` and
-ensure every required executable is on PATH on both controller and workers.
+For local execution inside a suitable compute allocation:
 
-Repeat the same command to resume. Snakemake handles incomplete outputs and reruns
-rules whose tracked inputs/parameters/code change. A postprocessing-only policy
-change does not redo the expensive searches. Keep `.snakemake/` in the working
-directory: it stores execution metadata. If you replace external software or
-InterProScan member data in place, Snakemake cannot detect that automatically;
-record the versions and use `--forcerun interproscan` (or the affected rule).
+```bash
+snakemake \
+  --snakefile "$REPO/Snakefile" \
+  --configfile "$RUN/config.yaml" \
+  --directory "$RUN" \
+  --cores 16 --resources mem_mb=64000 --rerun-incomplete
+```
 
-## Outputs and interpretation
+Repeat the same execution command to resume. Snakemake tracks input, parameter and
+code changes, and the profile enables incomplete-job recovery. Keep `.snakemake/`
+in the working directory. A postprocessing-only change does not repeat searches.
+Because software is managed externally, changing the active environment or replacing
+InterProScan/database data in place may require `--forcerun RULE` for the affected
+rule, or a fresh output directory. Record software and database versions for each run.
+
+## Outputs and validation
 
 Numbered directories contain longest-isoform GFF/proteins, Swiss-Prot hits,
 InterProScan TSV, eggNOG annotations, optional reference RBHs, and final GFF/summary.
-Each rule writes a log under `outdir/logs`. This version retains InterProScan TSV;
-it does not generate the redundant XML/GFF3 reports. eggNOG intermediate search
-files and reference indexes are temporary; final annotation and RBH tables remain.
+Logs are in `outdir/logs`. Final results are in `outdir/06_final`. InterProScan XML/GFF3
+and intermediate eggNOG search files are not retained by this workflow.
 
-The final directory also includes the effective YAML configuration and input file
-metadata in `*.run.json`. This is not a complete database/software version audit;
-record database releases and InterProScan versions alongside the config. A reference
-name comparison table is always produced (header only when reference analysis is off).
-
-The final GFF contains the selected longest isoforms and the same annotation types
-as the Bash version. eggNOG GO/KEGG/EC/COG annotations remain in the separate eggNOG
-table; only the configured fallback names are transferred. Reference RBHs indicate
-candidate correspondences, not a phylogenetic demonstration of orthology.
-
-## Tests
-
-In an environment containing Snakemake 9:
+`*.run.json` records the effective config and input metadata; it is not a complete
+software/database version audit. The reference comparison table is header-only
+when reference analysis is disabled. eggNOG GO/KEGG/EC/COG annotations remain in its
+separate table; only configured fallback names are transferred into the final GFF.
+Reference RBHs identify candidate correspondences, not proven orthology.
 
 ```bash
 python tests/test_snakemake.py
 python tests/test_pipeline.py
 ```
 
-The Snakemake integration test runs the real workflow engine with fake annotation
-executables. It checks the DAG, interrupted-rule recovery, empty-hit outputs,
-no-op resume, selective reruns after parameter changes, optional reference analysis,
-project isolation, and paths containing spaces. It does not replace a small pilot
-run with real annotations/databases on Jarvis. SLURM submission and conda solving
-must be validated on that Linux cluster.
+Tests run real Snakemake with simulated annotation executables. They cover dependency
+resolution, interrupted jobs, empty/positive hits, resume, selective parameter reruns,
+optional references, project isolation and paths with spaces. A small real-data pilot,
+Conda solving and SLURM submission still need validation on Jarvis.
 
-References: [Snakemake configuration](https://snakemake.readthedocs.io/en/stable/snakefiles/configuration.html),
-[command-line options](https://snakemake.readthedocs.io/en/stable/executing/cli.html),
+References: [Snakemake CLI](https://snakemake.readthedocs.io/en/stable/executing/cli.html)
 and [SLURM executor](https://snakemake.github.io/snakemake-plugin-catalog/plugins/executor/slurm.html).

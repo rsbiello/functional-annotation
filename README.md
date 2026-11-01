@@ -1,8 +1,25 @@
 # Functional annotation across projects and species
 
-**Snakemake is now available:** see [SNAKEMAKE.md](SNAKEMAKE.md) for the native
-rule-based workflow, YAML configuration, and local/SLURM commands. The instructions
-below describe the original Bash entry point.
+**Use one Conda environment, `funannot`, for everything:** Snakemake, SLURM
+submission, annotation tools, and database setup. InterProScan and databases live
+in shared folders outside Conda. Follow [SNAKEMAKE.md](SNAKEMAKE.md) for the complete
+Jarvis setup and run commands. The sections below describe the Bash workflow.
+
+```bash
+conda env create -f envs/funannot.yml
+conda activate funannot
+```
+
+If `funannot` already exists, update it instead of creating it again:
+
+```bash
+conda env update -n funannot -f envs/funannot.yml
+conda activate funannot
+```
+
+Run Snakemake from this environment without `--sdm conda`. The rules use the active
+environment and do not create additional environments. The old separate
+`functional-snakemake` environment is no longer needed; you can leave it unused.
 
 This pipeline annotates **eukaryotic gene models with gene/mRNA/CDS structure**.
 Create one Bash config per project/species or assembly. Config files execute shell
@@ -152,6 +169,7 @@ Everything runs from **one conda environment**, `funannot`:
 | [AGAT](https://github.com/NBISweden/AGAT) 1.7 | bioconda |
 | [DIAMOND](https://github.com/bbuchfink/diamond) 2.0.x | bioconda (eggNOG-mapper requires < 2.1) |
 | [eggNOG-mapper](https://github.com/eggnogdb/eggnog-mapper) 2.1.15 | bioconda |
+| Snakemake 9 and SLURM executor | conda-forge / bioconda |
 | Java 17, Python 3.11, Perl | conda-forge |
 | [InterProScan](https://interproscan-docs.readthedocs.io/) 5.75 | official EBI release, installed into the environment by `scripts/install_interproscan.sh` |
 

@@ -15,7 +15,7 @@ search:
   subject_cover: 50
   mode: sensitive
 interproscan:
-  # Absolute executable path is required with --sdm conda for an external install.
+  # Absolute path to the shared InterProScan installation.
   command: /path/to/interproscan-5.75-106.0/interproscan.sh
   offline: true
   applications: ""  # e.g. Pfam,PANTHER,Gene3D

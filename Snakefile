@@ -18,7 +18,6 @@ def out(relative):
     return str(Path(OUT) / relative)
 def helper(name):
     return str(ROOT / "scripts" / name)
-ENV = str(ROOT / "envs" / "funannot.yml")
 SEARCH = config.get("search", {})
 IPR = config.get("interproscan", {})
 EGG = config.get("eggnog", {})
@@ -76,8 +75,6 @@ rule longest_isoform:
         out("logs/longest_isoform.log")
     resources:
         mem_mb=mem("agat", 16000), runtime=runtime("agat", 120)
-    conda:
-        ENV
     shell:
         "agat_sp_keep_longest_isoform.pl --gff {input:q} --output {output:q} > {log:q} 2>&1"
 
@@ -90,8 +87,6 @@ rule extract_proteins:
         out("logs/extract_proteins.log")
     resources:
         mem_mb=mem("agat", 16000), runtime=runtime("agat", 120)
-    conda:
-        ENV
     shell:
         r"""
         scratch=$(mktemp -d)
@@ -113,8 +108,6 @@ rule swissprot:
         mem_mb=mem("swissprot", 16000), runtime=runtime("swissprot", 240)
     log:
         out("logs/swissprot.log")
-    conda:
-        ENV
     shell:
         r"""
         scratch=$(mktemp -d)
@@ -140,8 +133,6 @@ rule interproscan:
         mem_mb=mem("interproscan", 64000), runtime=runtime("interproscan", 4320)
     log:
         out("logs/interproscan.log")
-    conda:
-        ENV
     shell:
         r"""
         scratch=$(mktemp -d)
@@ -167,8 +158,6 @@ rule eggnog:
         mem_mb=mem("eggnog", 64000), runtime=runtime("eggnog", 1440)
     log:
         out("logs/eggnog.log")
-    conda:
-        ENV
     shell:
         r"""
         scratch=$(mktemp -d)
@@ -190,8 +179,6 @@ rule merge:
         mem_mb=mem("agat", 16000), runtime=runtime("agat", 120)
     log:
         out("logs/merge.log")
-    conda:
-        ENV
     shell:
         r"""
         scratch=$(mktemp -d)
@@ -222,8 +209,6 @@ if REF:
             mem_mb=mem("reference", 16000), runtime=runtime("reference", 240)
         log:
             out("logs/reference_rbh.log")
-        conda:
-            ENV
         shell:
             r"""
             scratch=$(mktemp -d)
@@ -247,8 +232,6 @@ rule postprocess:
         mem_mb=mem("postprocess", 8000), runtime=runtime("postprocess", 60)
     log:
         out("logs/postprocess.log")
-    conda:
-        ENV
     script:
         "workflow/scripts/postprocess.py"
 
@@ -264,7 +247,5 @@ rule summary:
         mem_mb=mem("postprocess", 8000), runtime=runtime("postprocess", 60)
     log:
         out("logs/summary.log")
-    conda:
-        ENV
     script:
         "workflow/scripts/summary.py"

@@ -1,5 +1,5 @@
 # Single environment for the whole pipeline:
-#   AGAT, DIAMOND, eggNOG-mapper, plus Java 17 and Python for InterProScan.
+#   Snakemake + SLURM executor, AGAT, DIAMOND, eggNOG-mapper, Java and Python.
 # InterProScan itself is installed into this environment afterwards with
 #   bash scripts/install_interproscan.sh config/my_species.sh
 # because the bioconda package is several years behind the current release.
@@ -11,6 +11,8 @@ channels:
   - bioconda
 dependencies:
   - python=3.11
+  - snakemake>=9,<10
+  - snakemake-executor-plugin-slurm
   - agat=1.7.0
   - eggnog-mapper=2.1.15
   - diamond
