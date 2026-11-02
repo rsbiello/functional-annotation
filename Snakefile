@@ -221,7 +221,8 @@ if REF:
 rule postprocess:
     input:
         gff=MERGED, eggnog=EGGANN, rbh=([RBH] if REF else []),
-        reference_awk=helper("apply_reference_names.awk"), eggnog_awk=helper("add_eggnog_names.awk")
+        reference_awk=helper("apply_reference_names.awk"), eggnog_awk=helper("add_eggnog_names.awk"),
+        cleaner=helper("clean_gff_attributes.py")
     output:
         gff=FINAL, comparison=COMPARISON
     params:

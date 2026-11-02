@@ -3,6 +3,7 @@ import csv
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 
 
@@ -62,7 +63,11 @@ def main(sm):
         text = current.read_text()
         if sm.params.clean_go_tags:
             text = re.sub(r'(GO:\d{7})\([A-Za-z]+\)', r'\1', text)
-        Path(sm.output.gff).write_text(text)
+        current.write_text(text)
+        cleaned = Path(tmp) / 'cleaned.gff3'
+        subprocess.run([sys.executable, str(sm.input.cleaner), str(current), str(cleaned)],
+                       check=True, stderr=log)
+        Path(sm.output.gff).write_text(cleaned.read_text())
 
 
 main(snakemake)

@@ -179,3 +179,25 @@ Conda solving and SLURM submission still need validation on Jarvis.
 
 References: [Snakemake CLI](https://snakemake.readthedocs.io/en/stable/executing/cli.html)
 and [SLURM executor](https://snakemake.github.io/snakemake-plugin-catalog/plugins/executor/slurm.html).
+
+## Cleanup of merged attributes
+
+Postprocessing removes a gene's locus-tag placeholder from `Name` only when one
+unambiguous symbol remains (for example `Name=SagSer_016351,FAU` becomes `Name=FAU`).
+The original locus remains in `locus_tag`; IDs, Parent links and CDS names are unchanged.
+Conflicting biological names are retained for review. Product values differing only
+in case or whitespace are deduplicated, keeping the first spelling and preserving
+encoded commas. Distinct descriptions remain intact. This changes formatting, not
+biological assignments.
+
+To clean an already completed GFF without rerunning any searches, write a new file:
+
+```bash
+python /absolute/path/to/repository/scripts/clean_gff_attributes.py input.gff3 cleaned.gff3
+```
+
+The standalone command refuses to overwrite its input or an existing output file.
+New Snakemake runs apply the same cleanup automatically during postprocessing.
+Existing Snakemake runs may rerun postprocessing and summary after this code update.
+The legacy Bash entry point does not apply this cleanup automatically; use the
+standalone command for its completed outputs.
