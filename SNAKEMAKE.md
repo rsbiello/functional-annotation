@@ -201,3 +201,9 @@ New Snakemake runs apply the same cleanup automatically during postprocessing.
 Existing Snakemake runs may rerun postprocessing and summary after this code update.
 The legacy Bash entry point does not apply this cleanup automatically; use the
 standalone command for its completed outputs.
+
+Cleanup also removes exact repeated `Ontology_term` identifiers while preserving
+their order, and repairs enclosing or solitary leading quotes in `ref_product`
+left by the legacy reference parser. New reference parsing strips enclosing FASTA
+description quotes before removing the source suffix. Existing completed GFFs can
+be repaired with the standalone cleanup command without rerunning reference searches.

@@ -37,6 +37,19 @@ def clean_attributes(text):
                     seen.add(key)
             if len(products) < len(attrs['product'].split(',')):
                 replacements['product'] = ','.join(products)
+        if 'Ontology_term' in attrs:
+            # These are identifiers: deduplicate exactly, retaining their order.
+            terms = attrs['Ontology_term'].split(',')
+            unique = list(dict.fromkeys(terms))
+            if unique != terms:
+                replacements['Ontology_term'] = ','.join(unique)
+        if 'ref_product' in attrs:
+            value = attrs['ref_product']
+            if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+                replacements['ref_product'] = value[1:-1]
+            elif value.startswith('"') and value.count('"') == 1:
+                # Legacy parser left this quote after removing [Source:...].
+                replacements['ref_product'] = value[1:]
         if replacements:
             parts = [p.split('=', 1)[0] + '=' + replacements[p.split('=', 1)[0]]
                      if '=' in p and p.split('=', 1)[0] in replacements else p for p in parts]

@@ -29,6 +29,10 @@ function flush() {
     else sub(/\.[0-9]+$/, "", gene)               # drop the version suffix
     if (match($0, /description:.*/)) {
         desc = substr($0, RSTART + 12)
+        # Remove enclosing header quotes BEFORE trimming the source suffix.
+        if (desc ~ /^"/ && desc ~ /"$/) {
+            desc = substr(desc, 2, length(desc) - 2)
+        }
         sub(/ *\[Source:.*$/, "", desc)
     }
     next
